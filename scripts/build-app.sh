@@ -41,7 +41,7 @@ for arch in $ARCHS; do
   SLICES+=("$OUT_DIR/$arch/ClipVault")
 done
 
-echo "▸ Assembling $APP…"
+echo "▸ Assembling ${APP}…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 if (( ${#SLICES[@]} > 1 )); then
