@@ -1,0 +1,26 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Run logic checks
+        run: make test
+      - name: Build universal app
+        run: make app
+      - name: Verify bundle
+        run: |
+          lipo -info build/ClipVault.app/Contents/MacOS/ClipVault
+          codesign --verify --verbose build/ClipVault.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipVault.app
+          path: build/ClipVault.app
