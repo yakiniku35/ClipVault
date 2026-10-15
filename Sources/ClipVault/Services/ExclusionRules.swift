@@ -28,12 +28,18 @@ struct ExclusionRules: Equatable {
                 if let host, Self.wildcardMatch(pattern: pattern, text: host) { return true }
                 continue
             }
+            if pattern.contains("/") {
+                // "mail.google.com/mail" — host plus path prefix.
+                if hostAndPath == pattern || hostAndPath.hasPrefix(pattern + "/")
+                    || hostAndPath.hasPrefix(pattern + "?") || hostAndPath.hasPrefix(pattern + "#") {
+                    return true
+                }
+                continue
+            }
             if let host {
-                // "bank.com" matches "bank.com" and "online.bank.com"
+                // "bank.com" matches "bank.com" and "online.bank.com", but not "notbank.com".
                 if host == pattern || host.hasSuffix("." + pattern) { return true }
             }
-            // "mail.google.com/mail" style path prefixes, or arbitrary substrings
-            if hostAndPath.hasPrefix(pattern) || hostAndPath.contains(pattern) { return true }
         }
         return false
     }
