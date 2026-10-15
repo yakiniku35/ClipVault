@@ -13,18 +13,30 @@ struct HistoryView: View {
 
     private let clock = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
-    private var filtered: [ClipItem] { store.search(query) }
-    private var pinned: [ClipItem] { filtered.filter(\.isPinned) }
-    private var recent: [ClipItem] { filtered.filter { !$0.isPinned } }
+    private struct Sections {
+        var pinned: [ClipItem] = []
+        var recent: [ClipItem] = []
+        var isEmpty: Bool { pinned.isEmpty && recent.isEmpty }
+    }
+
+    /// Runs the search once per render and splits the result by pin state.
+    private func sections() -> Sections {
+        var result = Sections()
+        for item in store.search(query) {
+            if item.isPinned { result.pinned.append(item) } else { result.recent.append(item) }
+        }
+        return result
+    }
 
     var body: some View {
+        let sections = sections()
         VStack(spacing: 0) {
             header
             Divider()
-            if filtered.isEmpty {
+            if sections.isEmpty {
                 emptyState
             } else {
-                list
+                list(sections)
             }
             Divider()
             footer
@@ -91,16 +103,16 @@ struct HistoryView: View {
         }
     }
 
-    private var list: some View {
+    private func list(_ sections: Sections) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                if !pinned.isEmpty {
+                if !sections.pinned.isEmpty {
                     sectionTitle("已釘選")
-                    ForEach(pinned) { row($0) }
+                    ForEach(sections.pinned) { row($0) }
                 }
-                if !recent.isEmpty {
-                    sectionTitle(pinned.isEmpty ? "歷史紀錄" : "最近")
-                    ForEach(recent) { row($0) }
+                if !sections.recent.isEmpty {
+                    sectionTitle(sections.pinned.isEmpty ? "歷史紀錄" : "最近")
+                    ForEach(sections.recent) { row($0) }
                 }
             }
             .padding(6)
