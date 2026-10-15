@@ -144,7 +144,7 @@ func renderPNG(pixels: Int, pointSize: CGFloat, to url: URL, draw: (CGFloat) -> 
     let ctx = NSGraphicsContext(bitmapImageRep: rep)!
     NSGraphicsContext.current = ctx
     ctx.shouldAntialias = true
-    draw(CGFloat(pixels))
+    draw(pointSize)  // the context is in points; the rep scales to pixels
     NSGraphicsContext.restoreGraphicsState()
     try rep.representation(using: .png, properties: [:])!.write(to: url)
 }

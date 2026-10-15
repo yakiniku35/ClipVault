@@ -40,7 +40,7 @@ final class ClipboardMonitor: ObservableObject {
     func start() {
         guard timer == nil else { return }
         let t = Timer(timeInterval: settings.pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.check() }
+            Task { @MainActor [weak self] in self?.check() }
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t

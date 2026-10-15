@@ -29,7 +29,7 @@ final class HistoryStore: ObservableObject {
             .store(in: &cancellables)
 
         let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.prune() }
+            Task { @MainActor [weak self] in self?.prune() }
         }
         RunLoop.main.add(t, forMode: .common)
         pruneTimer = t
@@ -141,7 +141,7 @@ final class HistoryStore: ObservableObject {
     private func scheduleSave() {
         saveWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            Task { @MainActor in self?.saveNow() }
+            Task { @MainActor [weak self] in self?.saveNow() }
         }
         saveWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
