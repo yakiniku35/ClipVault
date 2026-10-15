@@ -19,13 +19,14 @@ final class HistoryStore: ObservableObject {
         load()
         prune()
 
+        // @Published emits during willSet, so use the delivered values rather
+        // than re-reading `settings`, which still holds the old ones.
         settings.$retention
+            .combineLatest(settings.$maxItems)
             .dropFirst()
-            .sink { [weak self] _ in self?.prune() }
-            .store(in: &cancellables)
-        settings.$maxItems
-            .dropFirst()
-            .sink { [weak self] _ in self?.prune() }
+            .sink { [weak self] retention, maxItems in
+                self?.prune(policy: retention, maxItems: maxItems)
+            }
             .store(in: &cancellables)
 
         let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
@@ -95,8 +96,12 @@ final class HistoryStore: ObservableObject {
 
     /// Drop unpinned items that are older than the retention policy allows.
     func prune(now: Date = Date()) {
+        prune(policy: settings.retention, maxItems: settings.maxItems, now: now)
+    }
+
+    func prune(policy: RetentionPolicy, maxItems: Int, now: Date = Date()) {
         let before = items.count
-        items = Self.pruned(items, policy: settings.retention, maxItems: settings.maxItems, now: now)
+        items = Self.pruned(items, policy: policy, maxItems: maxItems, now: now)
         if items.count != before { scheduleSave() }
     }
 
@@ -125,16 +130,28 @@ final class HistoryStore: ObservableObject {
     static func defaultFileURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = base.appendingPathComponent("ClipVault", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Clipboard history is sensitive: keep the directory private to this user.
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
         return dir.appendingPathComponent("history.json")
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let decoded = try? decoder.decode([ClipItem].self, from: data) {
-            items = decoded
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            items = try decoder.decode([ClipItem].self, from: data)
+        } catch {
+            // Never overwrite a file we could not read: move it aside so the
+            // user can recover it, then start fresh.
+            let backup = fileURL.deletingPathExtension().appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970)).json")
+            try? FileManager.default.moveItem(at: fileURL, to: backup)
+            NSLog("ClipVault: could not read history (%@); moved it to %@", error.localizedDescription, backup.lastPathComponent)
         }
     }
 
@@ -154,6 +171,7 @@ final class HistoryStore: ObservableObject {
         do {
             let data = try encoder.encode(items)
             try data.write(to: fileURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
             NSLog("ClipVault: failed to save history: \(error.localizedDescription)")
         }

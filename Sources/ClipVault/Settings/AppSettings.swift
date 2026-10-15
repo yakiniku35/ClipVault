@@ -52,8 +52,12 @@ final class AppSettings: ObservableObject {
     }
 
     @Published var launchAtLogin: Bool {
-        didSet { applyLaunchAtLogin(launchAtLogin) }
+        didSet {
+            guard !isSyncingLaunchAtLogin, launchAtLogin != oldValue else { return }
+            applyLaunchAtLogin(launchAtLogin)
+        }
     }
+    private var isSyncingLaunchAtLogin = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -104,6 +108,10 @@ final class AppSettings: ObservableObject {
             }
         } catch {
             NSLog("ClipVault: launch-at-login change failed: \(error.localizedDescription)")
+            // Keep the toggle truthful: fall back to what the system reports.
+            isSyncingLaunchAtLogin = true
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            isSyncingLaunchAtLogin = false
         }
     }
 }

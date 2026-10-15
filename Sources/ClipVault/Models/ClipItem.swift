@@ -2,6 +2,13 @@ import Foundation
 
 /// A single captured clipboard entry.
 struct ClipItem: Identifiable, Codable, Equatable, Hashable {
+    /// Clips larger than this are not recorded (keeps memory, JSON and
+    /// rendering costs bounded).
+    static let maxStoredBytes = 2_000_000
+
+    /// Only this many leading characters are inspected to build `preview`.
+    static let previewScanLimit = 1_000
+
     let id: UUID
     var text: String
     var copiedAt: Date
@@ -29,12 +36,15 @@ struct ClipItem: Identifiable, Codable, Equatable, Hashable {
     }
 
     /// Single-line, whitespace-collapsed preview used in list rows.
+    /// Only the first `previewScanLimit` characters are tokenised so this stays
+    /// cheap for very large clips.
     var preview: String {
-        let collapsed = text
+        let head = text.prefix(Self.previewScanLimit)
+        let collapsed = head
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        if collapsed.count > 240 {
+        if collapsed.count > 240 || text.count > Self.previewScanLimit {
             return String(collapsed.prefix(240)) + "…"
         }
         return collapsed
@@ -53,7 +63,10 @@ struct ClipItem: Identifiable, Codable, Equatable, Hashable {
     }
 
     /// True when the whole clip looks like a single URL.
-    var looksLikeURL: Bool {
+    var looksLikeURL: Bool { Self.looksLikeURL(text) }
+
+    /// True when `text` as a whole is a single http(s) URL.
+    static func looksLikeURL(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.contains(" "), let url = URL(string: trimmed) else { return false }
         return url.scheme == "http" || url.scheme == "https"

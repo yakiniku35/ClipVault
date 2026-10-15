@@ -6,35 +6,65 @@ import Foundation
 /// Chromium browsers attach the page URL to the pasteboard directly. For
 /// Safari (and as a fallback for the others) we ask the browser for its
 /// front tab via AppleScript, which requires the user to grant Automation
-/// access the first time.
+/// access the first time. AppleScript can block for a long time, so it is
+/// run on a dedicated background queue and awaited.
 enum SourceURLResolver {
     static let chromiumSourceURLType = NSPasteboard.PasteboardType("org.chromium.source-url")
 
-    /// Bundle IDs → AppleScript snippet returning the active tab URL.
-    private static let scripts: [String: String] = [
-        "com.apple.Safari": #"tell application "Safari" to return URL of current tab of front window"#,
-        "com.apple.SafariTechnologyPreview": #"tell application "Safari Technology Preview" to return URL of current tab of front window"#,
-        "com.google.Chrome": #"tell application "Google Chrome" to return URL of active tab of front window"#,
-        "com.google.Chrome.canary": #"tell application "Google Chrome Canary" to return URL of active tab of front window"#,
-        "com.brave.Browser": #"tell application "Brave Browser" to return URL of active tab of front window"#,
-        "com.microsoft.edgemac": #"tell application "Microsoft Edge" to return URL of active tab of front window"#,
-        "company.thebrowser.Browser": #"tell application "Arc" to return URL of active tab of front window"#,
-        "com.vivaldi.Vivaldi": #"tell application "Vivaldi" to return URL of active tab of front window"#,
-        "com.operasoftware.Opera": #"tell application "Opera" to return URL of active tab of front window"#,
+    /// Browsers we can ask for their front tab. Addressed by bundle id so a
+    /// renamed or localized app name never breaks the lookup.
+    private static let safariIDs: Set<String> = [
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
     ]
+    private static let chromiumIDs: Set<String> = [
+        "com.google.Chrome",
+        "com.google.Chrome.beta",
+        "com.google.Chrome.canary",
+        "com.brave.Browser",
+        "com.microsoft.edgemac",
+        "company.thebrowser.Browser",   // Arc
+        "com.vivaldi.Vivaldi",
+        "com.operasoftware.Opera",
+    ]
+
+    private static let scriptQueue = DispatchQueue(label: "com.peterchiu.clipvault.applescript", qos: .userInitiated)
 
     static func isBrowser(bundleID: String?) -> Bool {
         guard let bundleID else { return false }
-        return scripts[bundleID] != nil || bundleID == "org.mozilla.firefox"
+        return canScript(bundleID: bundleID) || bundleID == "org.mozilla.firefox"
     }
 
-    static func resolve(pasteboard: NSPasteboard, bundleID: String?) -> String? {
-        if let fromPasteboard = pasteboard.string(forType: chromiumSourceURLType),
-           isWebURL(fromPasteboard) {
-            return fromPasteboard
+    static func canScript(bundleID: String) -> Bool {
+        safariIDs.contains(bundleID) || chromiumIDs.contains(bundleID)
+    }
+
+    /// Fast path: Chromium browsers put the page URL on the pasteboard.
+    static func pasteboardURL(_ pasteboard: NSPasteboard) -> String? {
+        guard let value = pasteboard.string(forType: chromiumSourceURLType), isWebURL(value) else { return nil }
+        return value
+    }
+
+    /// Slow path: ask the browser via AppleScript, off the main actor.
+    static func resolveViaAppleScript(bundleID: String) async -> String? {
+        guard let source = script(for: bundleID) else { return nil }
+        return await withCheckedContinuation { continuation in
+            scriptQueue.async {
+                continuation.resume(returning: runAppleScript(source))
+            }
         }
-        guard let bundleID, let source = scripts[bundleID] else { return nil }
-        return runAppleScript(source)
+    }
+
+    private static func script(for bundleID: String) -> String? {
+        let tab: String
+        if safariIDs.contains(bundleID) {
+            tab = "current tab"
+        } else if chromiumIDs.contains(bundleID) {
+            tab = "active tab"
+        } else {
+            return nil
+        }
+        return "tell application id \"\(bundleID)\" to return URL of \(tab) of front window"
     }
 
     private static func isWebURL(_ s: String) -> Bool {

@@ -30,16 +30,22 @@ final class ClipboardMonitor: ObservableObject {
         self.pasteboard = pasteboard
         self.lastChangeCount = pasteboard.changeCount
 
+        // @Published emits during willSet; use the delivered value, not
+        // `settings.pollInterval`, which is still the old one at that point.
         settings.$pollInterval
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] _ in self?.restart() }
+            .sink { [weak self] interval in self?.restart(interval: interval) }
             .store(in: &cancellables)
     }
 
     func start() {
+        start(interval: settings.pollInterval)
+    }
+
+    private func start(interval: TimeInterval) {
         guard timer == nil else { return }
-        let t = Timer(timeInterval: settings.pollInterval, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.check() }
         }
         RunLoop.main.add(t, forMode: .common)
@@ -51,9 +57,9 @@ final class ClipboardMonitor: ObservableObject {
         timer = nil
     }
 
-    private func restart() {
+    private func restart(interval: TimeInterval) {
         stop()
-        start()
+        start(interval: interval)
     }
 
     // MARK: - Capture
@@ -80,8 +86,12 @@ final class ClipboardMonitor: ObservableObject {
         }
 
         guard let raw = pasteboard.string(forType: .string) else { return }
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if raw.utf8.count > ClipItem.maxStoredBytes {
+            lastSkipReason = "內容超過 \(ClipItem.maxStoredBytes / 1_000_000) MB"
+            return
+        }
         let text = raw
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         let app = NSWorkspace.shared.frontmostApplication
         let bundleID = app?.bundleIdentifier
@@ -93,25 +103,44 @@ final class ClipboardMonitor: ObservableObject {
             return
         }
 
-        var sourceURL: String?
-        if settings.captureURLs, SourceURLResolver.isBrowser(bundleID: bundleID) {
-            sourceURL = SourceURLResolver.resolve(pasteboard: pasteboard, bundleID: bundleID)
-        }
-        // Also respect URL rules when the copied text itself is a URL.
-        let candidateURL = sourceURL ?? (ClipItem(text: text, sourceAppName: appName).looksLikeURL ? text : nil)
-        if rules.isURLExcluded(candidateURL) {
-            lastSkipReason = "已排除的網址：\(candidateURL ?? "")"
+        // The copied text itself may be a URL; apply the URL rules to it too.
+        let textURL = ClipItem.looksLikeURL(text) ? text : nil
+        if rules.isURLExcluded(textURL) {
+            lastSkipReason = "已排除的網址：\(textURL ?? "")"
             return
         }
 
+        let copiedAt = Date()
+        let wantsURL = settings.captureURLs && SourceURLResolver.isBrowser(bundleID: bundleID)
+        let chromiumURL = wantsURL ? SourceURLResolver.pasteboardURL(pasteboard) : nil
+
+        if wantsURL, chromiumURL == nil, let bundleID, SourceURLResolver.canScript(bundleID: bundleID) {
+            // AppleScript can block for a long time (busy browser, consent
+            // dialog), so resolve off the main actor and emit when it returns.
+            Task { [weak self] in
+                let url = await SourceURLResolver.resolveViaAppleScript(bundleID: bundleID)
+                await MainActor.run {
+                    self?.emit(text: text, copiedAt: copiedAt, appName: appName, bundleID: bundleID, sourceURL: url, rules: rules)
+                }
+            }
+            return
+        }
+
+        emit(text: text, copiedAt: copiedAt, appName: appName, bundleID: bundleID, sourceURL: chromiumURL, rules: rules)
+    }
+
+    private func emit(text: String, copiedAt: Date, appName: String, bundleID: String?, sourceURL: String?, rules: ExclusionRules) {
+        if rules.isURLExcluded(sourceURL) {
+            lastSkipReason = "已排除的網址：\(sourceURL ?? "")"
+            return
+        }
         lastSkipReason = nil
-        let item = ClipItem(
+        onCapture?(ClipItem(
             text: text,
-            copiedAt: Date(),
+            copiedAt: copiedAt,
             sourceAppName: appName,
             sourceBundleID: bundleID,
             sourceURL: sourceURL
-        )
-        onCapture?(item)
+        ))
     }
 }

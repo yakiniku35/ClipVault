@@ -74,6 +74,29 @@ do {
     check(ClipItem(text: "x", sourceAppName: "T", sourceURL: "https://www.github.com/a").sourceHost == "www.github.com", "sourceHost parsed")
     check(RetentionPolicy.oneHour.expiryDate(now: Date(timeIntervalSince1970: 7200)) == Date(timeIntervalSince1970: 3600), "expiry date arithmetic")
     check(RetentionPolicy.forever.expiryDate() == nil, "forever has no expiry")
+    check(ClipItem.looksLikeURL("https://example.com") && !ClipItem.looksLikeURL("nope"), "static looksLikeURL")
+    let huge = ClipItem(text: String(repeating: "a", count: 5_000), sourceAppName: "T")
+    check(huge.preview.count == 241 && huge.preview.hasSuffix("…"), "preview of huge clip is truncated")
+}
+
+// MARK: Pruning with explicit policy
+print("HistoryStore.prune(policy:)")
+do {
+    MainActor.assumeIsolated {
+        let defaults = UserDefaults(suiteName: "com.peterchiu.clipvault.smoke")!
+        defaults.removePersistentDomain(forName: "com.peterchiu.clipvault.smoke")
+        let settings = AppSettings(defaults: defaults)
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("clipvault-smoke-\(UUID().uuidString).json")
+        let store = HistoryStore(settings: settings, fileURL: tmp)
+        store.add(ClipItem(text: "old", copiedAt: Date().addingTimeInterval(-3600), sourceAppName: "T"))
+        store.add(ClipItem(text: "new", sourceAppName: "T"))
+        settings.retention = .fifteenMinutes
+        check(store.items.map(\.text) == ["new"], "changing retention prunes immediately with the new value")
+        store.saveNow()
+        let perms = (try? FileManager.default.attributesOfItem(atPath: tmp.path)[.posixPermissions] as? Int) ?? 0
+        check(perms == 0o600, "history file is written with 0600 permissions")
+        try? FileManager.default.removeItem(at: tmp)
+    }
 }
 
 print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")
