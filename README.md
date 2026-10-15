@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/icon-1024.png" width="128" alt="ClipVault icon">
+</p>
+
 # ClipVault
 
 <p align="center">
@@ -27,6 +31,7 @@
   - 一鍵暫停 / 恢復記錄。
   - 登入時自動啟動。
   - 點一下項目即複製回剪貼簿。
+  - App 圖示與選單列圖示都是用 AppKit 程式繪製（`scripts/make-icon.swift`），不依賴任何設計工具。
 
 <p align="center">
   <img src="docs/screenshots/settings-general.png" width="360" alt="一般設定">
@@ -91,7 +96,7 @@ Tests/
 scripts/
 ├── build-app.sh                # 不用 Xcode 的 .app 打包流程
 ├── smoke-test.sh
-└── make-icon.swift             # 產生 Resources/AppIcon.icns
+└── make-icon.swift             # 產生 AppIcon.icns 與選單列 MenuBarIcon@{1,2}x.png
 ```
 
 ## 已知限制
