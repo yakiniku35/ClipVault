@@ -101,7 +101,7 @@ final class HistoryStore: ObservableObject {
     }
 
     /// Pure pruning logic, exposed for tests.
-    static func pruned(_ items: [ClipItem], policy: RetentionPolicy, maxItems: Int, now: Date) -> [ClipItem] {
+    nonisolated static func pruned(_ items: [ClipItem], policy: RetentionPolicy, maxItems: Int, now: Date) -> [ClipItem] {
         var result = items
         if let cutoff = policy.expiryDate(now: now) {
             result.removeAll { !$0.isPinned && $0.copiedAt < cutoff }
