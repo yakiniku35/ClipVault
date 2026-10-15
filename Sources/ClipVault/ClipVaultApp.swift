@@ -12,7 +12,7 @@ struct ClipVaultApp: App {
                 .environmentObject(appDelegate.store)
                 .environmentObject(appDelegate.monitor)
         } label: {
-            Image(systemName: "doc.on.clipboard")
+            MenuBarIcon.image
         }
         .menuBarExtraStyle(.window)
 
@@ -48,5 +48,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         store.saveNow()
+    }
+}
+
+/// Custom template glyph for the menu bar, rendered by scripts/make-icon.swift.
+/// Falls back to an SF Symbol when running the bare binary outside the bundle.
+enum MenuBarIcon {
+    static var image: Image {
+        if let nsImage = Bundle.main.image(forResource: "MenuBarIcon") {
+            nsImage.isTemplate = true
+            nsImage.size = NSSize(width: 18, height: 18)
+            return Image(nsImage: nsImage)
+        }
+        return Image(systemName: "doc.on.clipboard")
     }
 }
