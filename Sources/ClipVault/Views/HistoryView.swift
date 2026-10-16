@@ -9,7 +9,28 @@ struct HistoryView: View {
     @State private var query = ""
     @State private var now = Date()
     @State private var copiedID: UUID?
-    @State private var showClearConfirm = false
+    @State private var pendingClear: ClearMode?
+
+    /// Which clear action is waiting for confirmation. Confirmation is an
+    /// inline banner rather than a sheet/alert: sheets presented inside a
+    /// MenuBarExtra window do not reliably run their button actions.
+    private enum ClearMode {
+        case unpinned, all
+
+        var question: String {
+            switch self {
+            case .unpinned: return "清除所有未釘選的紀錄？"
+            case .all: return "清除全部紀錄（包含釘選）？"
+            }
+        }
+
+        var confirmTitle: String {
+            switch self {
+            case .unpinned: return "清除未釘選"
+            case .all: return "清除全部"
+            }
+        }
+    }
 
     private let clock = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -33,6 +54,10 @@ struct HistoryView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if let mode = pendingClear {
+                clearBanner(mode)
+                Divider()
+            }
             if sections.isEmpty {
                 emptyState
             } else {
@@ -72,8 +97,8 @@ struct HistoryView: View {
             Menu {
                 settingsButton
                 Divider()
-                Button("清除未釘選的紀錄") { store.clear(keepPinned: true) }
-                Button("清除全部紀錄", role: .destructive) { showClearConfirm = true }
+                Button("清除未釘選的紀錄…") { pendingClear = .unpinned }
+                Button("清除全部紀錄…", role: .destructive) { pendingClear = .all }
                 Divider()
                 Button("結束 ClipVault") { NSApp.terminate(nil) }
             } label: {
@@ -85,9 +110,27 @@ struct HistoryView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .confirmationDialog("確定要清除全部紀錄（包含釘選）嗎？", isPresented: $showClearConfirm) {
-            Button("清除全部", role: .destructive) { store.clear(keepPinned: false) }
+    }
+
+    private func clearBanner(_ mode: ClearMode) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            Text(mode.question)
+                .font(.system(size: 12))
+            Spacer()
+            Button("取消") { pendingClear = nil }
+                .keyboardShortcut(.cancelAction)
+            Button(mode.confirmTitle) {
+                store.clear(keepPinned: mode == .unpinned)
+                pendingClear = nil
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
     }
 
     @ViewBuilder
